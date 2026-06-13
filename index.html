@@ -1,0 +1,1544 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>都内 駅訪問記録</title>
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+<style>
+  :root {
+    --bg: #f5f6f8;
+    --panel: #ffffff;
+    --border: #e2e5ea;
+    --text: #1c2330;
+    --sub: #6b7280;
+    --accent: #2f9e44;
+    --accent-dark: #237032;
+    --header-h: 52px;
+  }
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0; padding: 0;
+    height: 100%;
+    font-family: -apple-system, BlinkMacSystemFont, "Hiragino Kaku Gothic ProN", "Noto Sans JP", sans-serif;
+    color: var(--text);
+    background: var(--bg);
+    -webkit-text-size-adjust: 100%;
+  }
+  body { display: flex; flex-direction: column; height: 100dvh; overflow: hidden; }
+
+  /* ===== ヘッダー ===== */
+  header {
+    flex: 0 0 var(--header-h);
+    display: flex; align-items: center; gap: 8px;
+    padding: 0 10px;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+    overflow-x: auto;
+    scrollbar-width: none;
+  }
+  header::-webkit-scrollbar { display: none; }
+  header h1 {
+    font-size: 16px; margin: 0; white-space: nowrap;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .count-badge {
+    background: var(--accent); color: #fff;
+    font-size: 13px; font-weight: 700;
+    border-radius: 999px; padding: 2px 10px; white-space: nowrap;
+  }
+  .spacer { flex: 1 1 auto; }
+  header button {
+    flex: 0 0 auto;
+    font-size: 13px; padding: 7px 11px;
+    border: 1px solid var(--border); background: #fff; color: var(--text);
+    border-radius: 8px; cursor: pointer; white-space: nowrap;
+    display: flex; align-items: center; gap: 5px;
+  }
+  header button:active { background: #eef0f3; }
+  header button .ico { font-size: 14px; line-height: 1; }
+
+  /* ===== タブ ===== */
+  .tabs {
+    display: flex;
+    flex: 0 0 auto;
+    background: var(--panel);
+    border-bottom: 1px solid var(--border);
+  }
+  /* PCでは地図は常時表示なので「地図」タブは隠す（右パネルの一覧/メモ切替用に表示） */
+  @media (min-width: 681px) {
+    .tabs button[data-tab="map"] { display: none; }
+  }
+  .tabs button {
+    flex: 1; padding: 10px; border: none; background: none;
+    font-size: 14px; color: var(--sub); cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .tabs button.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 700; }
+
+  /* ===== メイン ===== */
+  main { flex: 1 1 auto; position: relative; min-height: 0; }
+  .pane { position: absolute; inset: 0; }
+  #map { width: 100%; height: 100%; background: #dde3ea; }
+
+  /* リストペイン */
+  .list-pane {
+    width: 320px;
+    background: var(--panel);
+    border-left: 1px solid var(--border);
+    display: flex; flex-direction: column;
+    left: auto; right: 0;
+  }
+  .list-search {
+    flex: 0 0 auto; padding: 8px; border-bottom: 1px solid var(--border);
+  }
+  .list-search input {
+    width: 100%; font-size: 16px; padding: 8px 10px;
+    border: 1px solid var(--border); border-radius: 8px;
+  }
+  .list-scroll {
+    flex: 1 1 auto; overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+  .grp-title {
+    font-size: 11px; color: var(--sub); font-weight: 700;
+    padding: 8px 12px 4px; background: #fafbfc;
+    position: sticky; top: 0; z-index: 1;
+    border-bottom: 1px solid var(--border);
+  }
+  .st-item {
+    display: flex; align-items: center; gap: 10px;
+    padding: 10px 12px; border-bottom: 1px solid #f0f2f5;
+    cursor: pointer; user-select: none;
+  }
+  .st-item:active { background: #f3f5f7; }
+  .st-name { flex: 1 1 auto; font-size: 14px; }
+  .st-item.visited .st-name { font-weight: 600; }
+  .st-line { font-size: 11px; color: var(--sub); }
+  .st-del {
+    flex: 0 0 auto; color: #c0392b; font-size: 16px;
+    padding: 2px 6px; border: none; background: none; cursor: pointer;
+  }
+
+  /* 路線ツリー（会社 > 路線 > 駅のグルーピング） */
+  .tree-co-h, .tree-ln-h {
+    display: flex; align-items: center; gap: 8px;
+    cursor: pointer; user-select: none;
+  }
+  .tree-co-h {
+    padding: 10px 12px; background: #eef1f5;
+    font-size: 13px; font-weight: 700; color: var(--text);
+    border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; z-index: 2;
+  }
+  .tree-ln-h {
+    padding: 8px 12px 8px 18px; background: #fafbfc;
+    font-size: 13px; font-weight: 600;
+    border-left: 4px solid #cbd2db; border-bottom: 1px solid #f0f2f5;
+  }
+  .tree-caret { flex: 0 0 auto; font-size: 9px; color: var(--sub); width: 11px; transition: transform .15s; }
+  .tree-co-h.open > .tree-caret, .tree-ln-h.open > .tree-caret { transform: rotate(90deg); }
+  .ln-dot { flex: 0 0 auto; width: 12px; height: 12px; border-radius: 50%; box-shadow: inset 0 0 0 1px rgba(0,0,0,.12); }
+  .ln-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .co-name { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tree-count {
+    flex: 0 0 auto; font-size: 11px; color: var(--sub);
+    background: #fff; border: 1px solid var(--border); border-radius: 999px; padding: 0 7px;
+  }
+  .st-item.indent { padding-left: 28px; }
+  .rec-row.indent { padding-left: 22px; }
+
+  /* 記録一覧（サマリー行） */
+  .rec-row { display: flex; align-items: center; gap: 10px; padding: 10px 12px; border-bottom: 1px solid #f0f2f5; cursor: pointer; }
+  .rec-row:active { background: #f3f5f7; }
+  .rec-thumb {
+    flex: 0 0 auto; width: 46px; height: 46px; border-radius: 8px;
+    background: #eef2f7; overflow: hidden; display: flex; align-items: center; justify-content: center;
+    color: #9aa4b2; font-size: 20px;
+  }
+  .rec-thumb img { width: 100%; height: 100%; object-fit: cover; }
+  .rec-head-main { flex: 1 1 auto; min-width: 0; }
+  .rec-name { font-weight: 700; font-size: 14px; }
+  .rec-stars { font-size: 13px; letter-spacing: 1px; color: #f5b301; }
+  .rec-stars .off { color: #d6dae0; }
+  .rec-stars.off-all { color: var(--sub); letter-spacing: normal; font-size: 12px; }
+  .rec-go { flex: 0 0 auto; color: #c0c6d0; font-size: 20px; }
+
+  .empty { padding: 24px 16px; color: var(--sub); font-size: 13px; text-align: center; line-height: 1.6; }
+  .hint-bar {
+    position: absolute; left: 50%; transform: translateX(-50%);
+    bottom: 12px; z-index: 500;
+    background: rgba(28,35,48,.85); color: #fff;
+    font-size: 12px; padding: 7px 14px; border-radius: 999px;
+    white-space: nowrap; pointer-events: none; max-width: 90%;
+    overflow: hidden; text-overflow: ellipsis;
+  }
+
+  /* 駅マーカー：30x30の透明な当たり判定の中央に小さな点 */
+  .st-marker {
+    background: transparent !important;
+    border: none !important;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .st-marker .st-dot {
+    width: 14px; height: 14px; border-radius: 50%;
+    background: #ffffff; border: 2px solid #94a3b8; box-sizing: border-box;
+    box-shadow: 0 1px 2px rgba(0,0,0,.25);
+  }
+  .st-marker.visited .st-dot { background: #2f9e44; border-color: #237032; }
+
+  /* マーカーラベル */
+  .mk-label {
+    background: rgba(255,255,255,.9); border: 1px solid var(--border);
+    border-radius: 4px; font-size: 11px; padding: 0 3px; white-space: nowrap;
+    box-shadow: 0 1px 2px rgba(0,0,0,.1);
+  }
+
+  /* ===== モーダル ===== */
+  .modal-bg {
+    position: fixed; inset: 0; background: rgba(0,0,0,.45);
+    display: none; align-items: center; justify-content: center; z-index: 2000;
+    padding: 20px;
+  }
+  .modal-bg.show { display: flex; }
+  .modal {
+    background: #fff; border-radius: 12px; padding: 18px;
+    width: 100%; max-width: 340px;
+  }
+  .modal h3 { margin: 0 0 12px; font-size: 16px; }
+  .modal p { font-size: 13px; color: var(--sub); margin: 0 0 12px; }
+  .modal input {
+    width: 100%; font-size: 16px; padding: 9px 10px;
+    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 12px;
+  }
+  .modal-btns { display: flex; gap: 8px; }
+  .modal-btns button {
+    flex: 1; padding: 10px; border-radius: 8px; font-size: 14px; cursor: pointer;
+    border: 1px solid var(--border); background: #fff;
+  }
+  .modal-btns button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  /* ===== 駅詳細モーダル ===== */
+  .modal.detail { max-width: 380px; max-height: 88dvh; overflow-y: auto; -webkit-overflow-scrolling: touch; }
+  .detail-head { display: flex; align-items: flex-start; justify-content: space-between; gap: 8px; margin-bottom: 12px; }
+  .detail-head h3 { margin: 0; font-size: 18px; }
+  .detail-head .x { border: none; background: none; font-size: 18px; color: var(--sub); cursor: pointer; padding: 2px 6px; }
+  .dt-visit { margin-bottom: 14px; }
+  .dt-info { display: flex; flex-direction: column; gap: 6px; margin-bottom: 14px; }
+  .dt-info-row { display: flex; gap: 8px; font-size: 13px; }
+  .dt-info-k { flex: 0 0 38px; color: var(--sub); font-weight: 700; padding-top: 1px; }
+  .dt-info-v { flex: 1 1 auto; display: flex; flex-wrap: wrap; gap: 5px; align-items: center; line-height: 1.6; }
+  .line-chip { display: inline-block; background: #eef2f7; border: 1px solid #e2e8f0; border-radius: 6px; padding: 1px 8px; font-size: 12px; }
+  .line-expand { border: none; background: none; color: var(--accent-dark); font-size: 12px; cursor: pointer; padding: 1px 4px; text-decoration: underline; }
+  .dt-muted { color: var(--sub); }
+  .dt-info-edit { align-self: flex-start; border: none; background: none; color: var(--accent-dark); font-size: 12px; cursor: pointer; padding: 2px 0; text-decoration: underline; }
+  .dt-edit-area, .dt-edit-input { width: 100%; font-size: 16px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 8px; font-family: inherit; margin-bottom: 8px; }
+  .dt-edit-area { resize: vertical; }
+  .dt-edit-btns { display: flex; gap: 8px; }
+  .dt-edit-btns button { flex: 1; padding: 9px; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); background: #fff; }
+  .dt-edit-btns button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .dt-rating { display: flex; align-items: center; gap: 2px; margin-bottom: 12px; }
+  .dt-star { font-size: 28px; line-height: 1; cursor: pointer; color: #d6dae0; user-select: none; }
+  .dt-star.on { color: #f5b301; }
+  .dt-rating-clear { margin-left: 10px; font-size: 12px; color: var(--sub); background: none; border: none; cursor: pointer; text-decoration: underline; }
+  .dt-showmap { width: 100%; padding: 11px; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid var(--accent); background: #fff; color: var(--accent-dark); font-weight: 700; margin-bottom: 10px; }
+  .dt-toggle {
+    width: 100%; padding: 11px; border-radius: 8px; font-size: 14px; cursor: pointer;
+    border: 1px solid var(--accent); background: #fff; color: var(--accent-dark); font-weight: 700;
+  }
+  .dt-toggle.on { background: var(--accent); color: #fff; }
+  .dt-label { display: block; font-size: 12px; color: var(--sub); font-weight: 700; margin: 6px 0 5px; }
+  #dtMemo {
+    width: 100%; font-size: 16px; padding: 9px 10px; resize: vertical;
+    border: 1px solid var(--border); border-radius: 8px; margin-bottom: 6px;
+    font-family: inherit;
+  }
+  .dt-photos { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 8px; }
+  .dt-nophoto { font-size: 12px; color: var(--sub); padding: 4px 0; }
+  .dt-thumb { position: relative; width: 78px; height: 78px; }
+  .dt-thumb img {
+    width: 100%; height: 100%; object-fit: cover; border-radius: 8px; cursor: pointer;
+    border: 1px solid var(--border);
+  }
+  .dt-thumb-del {
+    position: absolute; top: -7px; right: -7px; width: 22px; height: 22px;
+    border-radius: 50%; border: none; background: #c0392b; color: #fff;
+    font-size: 12px; line-height: 1; cursor: pointer;
+  }
+  .dt-addphoto {
+    width: 100%; padding: 10px; border: 1px dashed var(--border); background: #fafbfc;
+    border-radius: 8px; font-size: 14px; color: var(--text); cursor: pointer; margin-bottom: 14px;
+  }
+  .dt-foot { display: flex; gap: 8px; }
+  .dt-foot button { flex: 1; padding: 10px; border-radius: 8px; font-size: 14px; cursor: pointer; border: 1px solid var(--border); background: #fff; }
+  .dt-foot button.primary { background: var(--accent); color: #fff; border-color: var(--accent); }
+  .dt-foot button.danger { color: #c0392b; border-color: #f0c9c4; }
+
+  .img-viewer {
+    position: fixed; inset: 0; z-index: 3000; background: rgba(0,0,0,.9);
+    display: none; align-items: center; justify-content: center; padding: 16px;
+  }
+  .img-viewer.show { display: flex; }
+  .img-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 6px; }
+
+  /* ===== レスポンシブ ===== */
+  @media (max-width: 680px) {
+    .tabs { display: flex; }
+    .list-pane { width: 100%; left: 0; right: 0; border-left: none; }
+    header h1 .ttl-txt { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<header>
+  <h1><span class="ico">🚉</span><span class="ttl-txt">都内 駅訪問記録</span></h1>
+  <span class="count-badge" id="countBadge">0 駅</span>
+  <span class="spacer"></span>
+  <button id="refreshBtn"><span class="ico">🔄</span>更新</button>
+  <button id="locBtn"><span class="ico">📍</span>現在地</button>
+  <button id="exportBtn"><span class="ico">⬇️</span>書出</button>
+  <button id="importBtn"><span class="ico">⬆️</span>取込</button>
+  <input type="file" id="importFile" accept="application/json" hidden>
+</header>
+
+<div class="tabs">
+  <button data-tab="map" class="active">🗺️ 地図</button>
+  <button data-tab="list">📋 一覧</button>
+  <button data-tab="memo">📝 記録</button>
+</div>
+
+<main>
+  <div class="pane map-pane" id="mapPane">
+    <div id="map"></div>
+    <div class="hint-bar" id="hintBar">地図を動かすと駅が読み込まれます</div>
+  </div>
+  <div class="pane list-pane" id="listPane">
+    <div class="list-search">
+      <input type="text" id="searchInput" placeholder="駅名で絞り込み…">
+    </div>
+    <div class="list-scroll" id="listScroll"></div>
+  </div>
+  <div class="pane list-pane" id="memoPane">
+    <div class="list-scroll" id="memoScroll"></div>
+  </div>
+</main>
+
+<!-- 駅追加モーダル -->
+<div class="modal-bg" id="addModal">
+  <div class="modal">
+    <h3>駅を追加</h3>
+    <p>この地点に駅を登録します（地図に無い駅の手動追加用）。駅名を入力してください。</p>
+    <input type="text" id="addName" placeholder="例：◯◯駅">
+    <div class="modal-btns">
+      <button id="addCancel">キャンセル</button>
+      <button id="addOk" class="primary">追加して訪問済みに</button>
+    </div>
+  </div>
+</div>
+
+<!-- 駅詳細（メモ・写真）モーダル -->
+<div class="modal-bg" id="detailModal">
+  <div class="modal detail">
+    <div class="detail-head">
+      <div>
+        <h3 id="dtName">駅</h3>
+        <div class="st-line" id="dtLine"></div>
+      </div>
+      <button id="dtClose" class="x" aria-label="閉じる">✕</button>
+    </div>
+    <div class="dt-info" id="dtInfo"></div>
+    <div class="dt-visit" id="dtVisit"></div>
+    <label class="dt-label">評価</label>
+    <div class="dt-rating" id="dtRating"></div>
+    <label class="dt-label">メモ</label>
+    <textarea id="dtMemo" rows="3" placeholder="訪れた日・感想・乗り換えメモなど"></textarea>
+    <label class="dt-label">写真</label>
+    <div class="dt-photos" id="dtPhotos"></div>
+    <button id="dtAddPhoto" class="dt-addphoto">＋ 写真を追加</button>
+    <input type="file" id="dtPhotoInput" accept="image/*" multiple hidden>
+    <button id="dtShowMap" class="dt-showmap" hidden>📍 地図で表示</button>
+    <div class="dt-foot">
+      <button id="dtDelete" class="danger">記録を削除</button>
+      <button id="dtDone" class="primary">閉じる</button>
+    </div>
+  </div>
+</div>
+
+<!-- 写真ビューア -->
+<div class="img-viewer" id="imgViewer"><img id="imgViewerImg" alt="写真"></div>
+
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script>
+/* =========================================================
+   都内 駅訪問記録
+   - 駅データは国土数値情報（stations.json）から読み込み
+   - 訪問記録は座標つきで localStorage に保存
+   - 住所は Nominatim（OSM）から逆ジオコーディング
+   ========================================================= */
+
+const STORAGE_KEY = 'tokyo-station-tracker-v2';
+
+/* 状態 */
+let stationsMaster = [];       // [{name, line, company, code, lat, lng}] ← stations.json
+let stationsByNameCoord = {};  // name -> {lat, lng}（地図マーカー用・平均座標）
+let stationsByNameEntries = {};// name -> [{line, company}]（ツリー・色算出用）
+let masterNames = new Set();   // 全駅名セット
+let masterLineTotals = {};     // "company\tline" -> 総駅名数（記録タブの分母用）
+let stationCodeMap = {};       // "name\tcompany\tline" -> 駅コード（路線内順序用）
+let visited = {};              // name -> {lat, lng, custom, memo, photos, address, rating}
+let pendingLatLng = null;      // 追加モーダル用
+let currentTab = 'map';
+const markers = {};            // name -> leaflet marker
+
+/* ---- IndexedDB（写真を大容量・効率的に保存） ----
+   visited[name].photos は写真の参照配列。
+   - 数値: IndexedDB 内の写真ID
+   - 文字列(data:...): IDB非対応時のフォールバック（base64） */
+const IDB_NAME = 'tokyo-station-tracker';
+const IDB_STORE = 'photos';
+const idbSupported = (typeof indexedDB !== 'undefined');
+let _db = null;
+function openDB() {
+  return new Promise((resolve, reject) => {
+    if (_db) return resolve(_db);
+    const req = indexedDB.open(IDB_NAME, 1);
+    req.onupgradeneeded = () => {
+      const db = req.result;
+      if (!db.objectStoreNames.contains(IDB_STORE)) db.createObjectStore(IDB_STORE, { keyPath: 'id', autoIncrement: true });
+    };
+    req.onsuccess = () => { _db = req.result; resolve(_db); };
+    req.onerror = () => reject(req.error);
+  });
+}
+function idbAdd(blob) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const req = tx.objectStore(IDB_STORE).add({ blob });
+    req.onsuccess = () => resolve(req.result);
+    req.onerror = () => reject(req.error);
+  }));
+}
+function idbGet(id) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readonly');
+    const req = tx.objectStore(IDB_STORE).get(id);
+    req.onsuccess = () => resolve(req.result ? req.result.blob : null);
+    req.onerror = () => reject(req.error);
+  }));
+}
+function idbDelete(id) {
+  return openDB().then(db => new Promise((resolve, reject) => {
+    const tx = db.transaction(IDB_STORE, 'readwrite');
+    const req = tx.objectStore(IDB_STORE).delete(id);
+    req.onsuccess = () => resolve();
+    req.onerror = () => reject(req.error);
+  }));
+}
+function blobToDataURL(blob) {
+  return new Promise((resolve, reject) => {
+    const r = new FileReader();
+    r.onload = () => resolve(r.result);
+    r.onerror = () => reject(r.error);
+    r.readAsDataURL(blob);
+  });
+}
+function dataURLToBlob(dataURL) {
+  const [head, b64] = dataURL.split(',');
+  const mime = (head.match(/:(.*?);/) || [])[1] || 'image/jpeg';
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return new Blob([arr], { type: mime });
+}
+// 写真を保存し参照を返す（IDB: 数値ID / 非対応: dataURL文字列）
+async function storePhoto(blob) {
+  if (idbSupported) {
+    try { return await idbAdd(blob); } catch (e) { /* 失敗時は下のdataURLへフォールバック */ }
+  }
+  return await blobToDataURL(blob);
+}
+// 参照→表示用URL（revoke:true なら呼び出し側でURL.revokeObjectURLが必要）
+async function photoToURL(ref) {
+  if (typeof ref === 'number') {
+    try { const blob = await idbGet(ref); return blob ? { url: URL.createObjectURL(blob), revoke: true } : null; }
+    catch (e) { return null; }
+  }
+  if (typeof ref === 'string') return { url: ref, revoke: false };
+  return null;
+}
+// 記録に紐づく写真をIDBから削除
+function purgePhotos(rec) {
+  if (rec && Array.isArray(rec.photos)) rec.photos.forEach(p => { if (typeof p === 'number') idbDelete(p).catch(() => {}); });
+}
+
+/* ---- localStorage ---- */
+function isLocalStorageAvailable() {
+  try { localStorage.setItem('_t','1'); localStorage.removeItem('_t'); return true; }
+  catch(e) { return false; }
+}
+const hasLS = isLocalStorageAvailable();
+
+function load() {
+  if (!hasLS) return;
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (raw) {
+      const d = JSON.parse(raw);
+      visited = d.visited || {};
+    }
+    // 旧バージョン(v1)からの簡易移行
+    const old = localStorage.getItem('tokyo-station-tracker-v1');
+    if (old && Object.keys(visited).length === 0) {
+      try {
+        const o = JSON.parse(old);
+        (o.customStations || []).forEach(s => {
+          visited[s.name] = { lat: s.lat, lng: s.lng, line: s.line || '駅', custom: true };
+        });
+      } catch(e) {}
+    }
+  } catch(e) { console.warn('読込失敗', e); }
+}
+function save() {
+  if (!hasLS) return true;
+  try { localStorage.setItem(STORAGE_KEY, JSON.stringify({ visited })); return true; }
+  catch(e) {
+    console.warn('保存失敗', e);
+    if (e && (e.name === 'QuotaExceededError' || /quota/i.test(String(e)))) {
+      alert('保存容量が上限に達しました。写真の枚数を減らすか、不要な記録を削除してください。');
+    }
+    return false;
+  }
+}
+
+/* ---- 駅マスタ読み込み ---- */
+async function loadStations() {
+  const hint = document.getElementById('hintBar');
+  hint.textContent = '駅データを読み込み中…';
+  try {
+    const res = await fetch('stations.json');
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    stationsMaster = await res.json();
+    // インデックス構築
+    const coords = {};
+    const entries = {};
+    stationsMaster.forEach(s => {
+      masterNames.add(s.name);
+      if (!coords[s.name]) coords[s.name] = { lat: 0, lng: 0, n: 0 };
+      coords[s.name].lat += s.lat;
+      coords[s.name].lng += s.lng;
+      coords[s.name].n++;
+      if (!entries[s.name]) entries[s.name] = [];
+      entries[s.name].push({ line: s.line, company: s.company });
+    });
+    for (const [nm, c] of Object.entries(coords)) {
+      stationsByNameCoord[nm] = { lat: c.lat / c.n, lng: c.lng / c.n };
+    }
+    stationsByNameEntries = entries;
+    // company|line ごとの総駅名数（記録タブ等の分母用）＆駅コードマップ
+    const mls = {};
+    stationsMaster.forEach(s => {
+      const k = s.company + '\t' + s.line;
+      if (!mls[k]) mls[k] = new Set();
+      mls[k].add(s.name);
+      stationCodeMap[s.name + '\t' + s.company + '\t' + s.line] = s.code || '';
+    });
+    masterLineTotals = {};
+    for (const [k, set] of Object.entries(mls)) masterLineTotals[k] = set.size;
+    computeLineTotalCounts();
+    renderMarkers();
+    renderList();
+    hint.textContent = `${masterNames.size} 駅 / 訪問 ${Object.keys(visited).length} 駅`;
+  } catch (e) {
+    document.getElementById('hintBar').textContent = '駅データの読み込みに失敗しました';
+  }
+}
+
+/* ---- 地図マーカー用ユニーク駅リスト ---- */
+function allStations() {
+  const m = {};
+  masterNames.forEach(name => {
+    const c = stationsByNameCoord[name];
+    m[name] = { name, lat: c.lat, lng: c.lng, custom: false, visited: !!visited[name] };
+  });
+  // 手動追加（マスタ外）
+  for (const [name, rec] of Object.entries(visited)) {
+    if (!m[name] && rec && typeof rec.lat === 'number') {
+      m[name] = { name, lat: rec.lat, lng: rec.lng, custom: true, visited: true };
+    }
+  }
+  return Object.values(m);
+}
+function isVisited(name) { return !!visited[name]; }
+
+/* ---- 地図 ---- */
+const map = L.map('map', { zoomControl: true }).setView([35.681, 139.767], 13);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  maxZoom: 19,
+  attribution: '&copy; OpenStreetMap contributors'
+}).addTo(map);
+
+// 見た目の点は小さく、タップ範囲（透明な余白）は広く。
+// colors: 路線イメージカラーの配列（最大3）。複数なら扇形で混合表示。
+function markerIcon(v, colors) {
+  let style = '';
+  if (colors && colors.length) {
+    if (colors.length === 1) {
+      style = `background:${colors[0]};border-color:${darken(colors[0])}`;
+    } else {
+      const seg = 360 / colors.length;
+      const stops = colors.map((c, i) => `${c} ${i * seg}deg ${(i + 1) * seg}deg`).join(',');
+      style = `background:conic-gradient(${stops});border-color:${darken(colors[0])}`;
+    }
+  }
+  const dot = style
+    ? `<span class="st-dot" style="${style}"></span>`
+    : '<span class="st-dot"></span>';
+  return L.divIcon({
+    className: 'st-marker' + (v ? ' visited' : ''),
+    html: dot,
+    iconSize: [30, 30],
+    iconAnchor: [15, 15]
+  });
+}
+
+function renderMarkers() {
+  computeLineCounts();
+  Object.values(markers).forEach(m => map.removeLayer(m));
+  for (const k in markers) delete markers[k];
+  allStations().forEach(st => {
+    const colors = st.visited ? stationLineColors(st.name) : null;
+    const m = L.marker([st.lat, st.lng], { icon: markerIcon(st.visited, colors), keyboard: false });
+    m.bindTooltip(st.name, { direction: 'top', offset: [0, -8], className: 'mk-label' });
+    m.on('click', e => { L.DomEvent.stopPropagation(e); openDetail(st.name); });
+    m.addTo(map);
+    markers[st.name] = m;
+  });
+}
+
+/* ---- 訪問トグル ---- */
+function setVisited(st) {
+  if (visited[st.name]) {
+    const r = visited[st.name];
+    if ((r.memo && r.memo.trim()) || (r.photos && r.photos.length)) {
+      if (!confirm(`「${st.name}」のメモ・写真も削除して未訪問に戻しますか？`)) return;
+    }
+    purgePhotos(r);
+    delete visited[st.name];
+  } else {
+    const c = stationsByNameCoord[st.name];
+    visited[st.name] = { lat: c ? c.lat : st.lat, lng: c ? c.lng : st.lng, custom: !!st.custom, memo: '', photos: [] };
+  }
+  save();
+  updateCount();
+  renderMarkers();
+  renderList();
+}
+
+function updateCount() {
+  document.getElementById('countBadge').textContent = Object.keys(visited).length + ' 駅';
+}
+
+/* ---- リスト（事業者 > 路線 > 駅のツリー） ---- */
+let listExp = new Set();
+
+function stationObj(name) {
+  const c = stationsByNameCoord[name];
+  return c
+    ? { name, lat: c.lat, lng: c.lng, custom: false, visited: !!visited[name] }
+    : { name, lat: visited[name]?.lat, lng: visited[name]?.lng, custom: true, visited: true };
+}
+
+function listRowHTML(name) {
+  const s = stationObj(name);
+  const rec = visited[name];
+  const badges = rec ? `${rec.memo && rec.memo.trim() ? ' 📝' : ''}${rec.photos && rec.photos.length ? ' 📷' + rec.photos.length : ''}` : '';
+  return `<div class="st-item indent ${s.visited ? 'visited' : ''}" data-name="${escapeAttr(name)}">
+    <div class="st-name">${escapeHtml(name)}${s.custom ? '<div class="st-line">手動追加</div>' : ''}${badges ? `<span style="font-size:11px;color:var(--sub)">${badges}</span>` : ''}</div>
+    ${s.custom ? `<button class="st-del" data-del="${escapeAttr(name)}" title="削除">🗑</button>` : ''}
+  </div>`;
+}
+
+/* buildTree: stationsMaster を使って事業者>路線>駅のツリーを構築 */
+function buildTree(nameFilter) {
+  // nameFilter: null=全駅 / 'visited'=訪問済みのみ / Set<string>=名前フィルタ
+  const cos = {}; // company -> { lines: {line -> Set<name>}, names: Set<name> }
+
+  stationsMaster.forEach(e => {
+    if (nameFilter === 'visited' && !visited[e.name]) return;
+    if (nameFilter instanceof Set && !nameFilter.has(e.name)) return;
+    const { name, line, company } = e;
+    if (!cos[company]) cos[company] = { company, lines: {}, names: new Set() };
+    cos[company].names.add(name);
+    if (!cos[company].lines[line]) cos[company].lines[line] = new Set();
+    cos[company].lines[line].add(name);
+  });
+
+  // 手動追加駅（マスタ外）を 'visited' / フィルタ時に含める
+  if (nameFilter) {
+    for (const [name, rec] of Object.entries(visited)) {
+      if (!masterNames.has(name) && rec && typeof rec.lat === 'number') {
+        const co = '手動追加';
+        if (!cos[co]) cos[co] = { company: co, lines: {}, names: new Set() };
+        cos[co].names.add(name);
+        if (!cos[co].lines['手動追加']) cos[co].lines['手動追加'] = new Set();
+        cos[co].lines['手動追加'].add(name);
+      }
+    }
+  }
+
+  return Object.values(cos)
+    .sort((a, b) => a.company.localeCompare(b.company, 'ja'))
+    .map(c => {
+      const lines = Object.entries(c.lines)
+        .map(([lineName, nameSet]) => {
+          // 駅をN02_005c駅コード順で並べる（コードなしはあいうえお末尾）
+          const names = [...nameSet].sort((a, b) => {
+            const ca = stationCodeMap[a + '\t' + c.company + '\t' + lineName] || '';
+            const cb = stationCodeMap[b + '\t' + c.company + '\t' + lineName] || '';
+            if (ca && cb) return ca.localeCompare(cb);
+            if (ca) return -1;
+            if (cb) return 1;
+            return a.localeCompare(b, 'ja');
+          });
+          const visitedCount = names.filter(n => visited[n]).length;
+          const masterCount = masterLineTotals[c.company + '\t' + lineName] || names.length;
+          return { name: lineName, names, visitedCount, masterCount };
+        })
+        .sort((a, b) =>
+          (LINE_ORDER.get(a.name) ?? 9999) - (LINE_ORDER.get(b.name) ?? 9999) ||
+          a.name.localeCompare(b.name, 'ja')
+        );
+      const visitedCount = [...c.names].filter(n => visited[n]).length;
+      return { company: c.company, count: c.names.size, visitedCount, lines };
+    });
+}
+
+function renderList() {
+  computeLineCounts();
+  const q = document.getElementById('searchInput').value.trim();
+  const scroll = document.getElementById('listScroll');
+  if (masterNames.size === 0) {
+    scroll.innerHTML = '<div class="empty">駅データを読み込み中…</div>';
+    return;
+  }
+  let filter = null;
+  if (q) {
+    const matched = new Set();
+    stationsMaster.forEach(e => {
+      if (e.name.includes(q) || e.line.includes(q) || e.company.includes(q)) matched.add(e.name);
+    });
+    for (const name of Object.keys(visited)) { if (name.includes(q)) matched.add(name); }
+    filter = matched;
+  }
+  const tree = buildTree(filter);
+  if (!tree.length) {
+    scroll.innerHTML = '<div class="empty">該当する駅がありません。</div>';
+    return;
+  }
+  scroll.innerHTML = renderTreeHTML(tree, listExp, { forceExpand: !!q, row: listRowHTML });
+}
+
+function escapeHtml(s){ return String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c])); }
+function escapeAttr(s){ return escapeHtml(s); }
+
+/* ---- 路線カラー（路線名完全一致・出典：Wikipedia日本語版 各路線記事） ---- */
+const LINE_COLORS_MAP = new Map([
+  // JR東日本（事業者：東日本旅客鉄道）
+  ['山手線',         '#7fc342'],
+  ['中央線',         '#f15a22'],
+  ['総武線',         '#ffd400'],
+  ['横須賀線',       '#0067c0'],
+  ['根岸線',         '#00b2e5'],
+  ['東北線',         '#00b2e5'],
+  ['常磐線',         '#00b261'],
+  ['東海道線',       '#f68b1e'],
+  ['高崎線',         '#f68b1e'],
+  ['武蔵野線',       '#f15a22'],
+  ['京葉線',         '#c9252f'],
+  ['南武線',         '#ffd600'],
+  ['横浜線',         '#9acd32'],
+  ['川越線',         '#00ac9a'],
+  ['赤羽線',         '#00ac9a'],
+  ['青梅線',         '#f15a22'],
+  ['五日市線',       '#f15a22'],
+  ['八高線',         '#f15a22'],
+  ['鶴見線',         '#ffd400'],
+  ['相模線',         '#9acd32'],
+  ['東北新幹線',     '#00b2e5'],
+  ['上越新幹線',     '#e5171f'],
+  ['東海道新幹線',   '#f68b1e'],
+  // 東京地下鉄（東京メトロ）
+  ['3号線銀座線',         '#ff9500'],
+  ['4号線丸ノ内線',       '#f62e36'],
+  ['4号線丸ノ内線分岐線', '#f62e36'],
+  ['2号線日比谷線',       '#b5b5ac'],
+  ['5号線東西線',         '#009bbf'],
+  ['9号線千代田線',       '#00bb85'],
+  ['8号線有楽町線',       '#c1a470'],
+  ['11号線半蔵門線',      '#8f76d6'],
+  ['7号線南北線',         '#00ac9b'],
+  ['13号線副都心線',      '#9c5e31'],
+  // 都営（東京都）
+  ['1号線浅草線',    '#ec6e65'],
+  ['6号線三田線',    '#0079c2'],
+  ['10号線新宿線',   '#b0bf1e'],
+  ['12号線大江戸線', '#b6007a'],
+  ['荒川線',         '#e60020'],
+  ['日暮里・舎人ライナー', '#cd9f0c'],
+  // 横浜市営地下鉄
+  ['1号線',  '#005ba5'],
+  ['3号線',  '#005ba5'],
+  ['4号線',  '#048d58'],
+  // 東急
+  ['東横線',        '#da0442'],
+  ['田園都市線',    '#20a288'],
+  ['目黒線',        '#009cd2'],
+  ['大井町線',      '#f18c43'],
+  ['池上線',        '#ee86a7'],
+  ['東急多摩川線',  '#ae0378'],
+  ['世田谷線',      '#fcc70d'],
+  ['こどもの国線',  '#0068b7'],
+  ['東急新横浜線',  '#9b7cb6'],
+  // 小田急
+  ['小田原線',      '#0072bc'],
+  ['江ノ島線',      '#0072bc'],
+  ['多摩線',        '#0072bc'],
+  // 京王
+  ['京王線',        '#dd0077'],
+  ['井の頭線',      '#0079c0'],
+  ['相模原線',      '#dd0077'],
+  ['高尾線',        '#dd0077'],
+  ['競馬場線',      '#dd0077'],
+  ['動物園線',      '#dd0077'],
+  // 西武
+  ['池袋線',        '#ef810f'],
+  ['新宿線',        '#00a6bf'],
+  ['国分寺線',      '#ef810f'],
+  ['拝島線',        '#ef810f'],
+  ['多摩川線',      '#ef810f'],
+  ['多摩湖線',      '#ef810f'],
+  ['狭山線',        '#ef810f'],
+  ['西武有楽町線',  '#ef810f'],
+  ['豊島線',        '#ef810f'],
+  ['西武秩父線',    '#ef810f'],
+  ['西武園線',      '#ef810f'],
+  ['山口線',        '#ef810f'],
+  // 東武
+  ['東上本線',      '#004098'],
+  ['伊勢崎線',      '#0067c0'],
+  ['野田線',        '#70be47'],
+  ['亀戸線',        '#0067c0'],
+  ['大師線',        '#0067c0'],
+  ['日光線',        '#0067c0'],
+  ['佐野線',        '#0067c0'],
+  ['桐生線',        '#0067c0'],
+  ['越生線',        '#004098'],
+  // 京浜急行電鉄
+  ['本線',          '#e7211a'],
+  ['空港線',        '#e7211a'],
+  ['久里浜線',      '#e7211a'],
+  ['逗子線',        '#e7211a'],
+  // 京成電鉄
+  ['成田空港線',    '#f78e00'],
+  ['押上線',        '#0f6cc3'],
+  ['千葉線',        '#0f6cc3'],
+  ['千原線',        '#0f6cc3'],
+  ['東成田線',      '#0f6cc3'],
+  ['金町線',        '#0f6cc3'],
+  ['新京成線',      '#ee86a7'],
+  // 相模鉄道
+  ['相鉄本線',      '#0c1e56'],
+  ['相鉄いずみ野線','#0c1e56'],
+  ['相鉄新横浜線',  '#0c1e56'],
+  // その他
+  ['常磐新線',      '#000084'],
+  ['臨海副都心線',  '#00b19d'],
+  ['東京臨海新交通臨海線', '#0067c0'],
+  ['東京モノレール羽田線', '#003686'],
+  ['多摩都市モノレール線', '#ff6633'],
+  ['みなとみらい21線',     '#005bac'],
+  ['東葉高速線',    '#d71635'],
+  ['北総線',        '#e60020'],
+  ['埼玉高速鉄道線','#b30082'],
+  ['金沢シーサイドライン', '#009000'],
+]);
+function hashHue(s){ let h=0; for(let i=0;i<s.length;i++) h=(h*31+s.charCodeAt(i))>>>0; return h%360; }
+function hslToHex(h,s,l){
+  s/=100; l/=100; const a=s*Math.min(l,1-l);
+  const f=n=>{ const k=(n+h/30)%12; const c=l-a*Math.max(-1,Math.min(k-3,9-k,1)); return Math.round(255*c).toString(16).padStart(2,'0'); };
+  return '#'+f(0)+f(8)+f(4);
+}
+function darken(hex,f){
+  f=f||0.7; const m=hex.replace('#','');
+  const r=parseInt(m.slice(0,2),16), g=parseInt(m.slice(2,4),16), b=parseInt(m.slice(4,6),16);
+  const d=x=>Math.round(x*f).toString(16).padStart(2,'0');
+  return '#'+d(r)+d(g)+d(b);
+}
+function lineColorOf(line){
+  return LINE_COLORS_MAP.get(line) || hslToHex(hashHue(line), 52, 46);
+}
+
+/* Wikipedia「関東地方の鉄道路線」掲載順に基づく路線ソート順
+   同名路線（大師線等）は first-occurrence を採用（会社が異なるため影響なし） */
+const LINE_ORDER = (()=>{
+  const a = [
+    // 地方またぎ・新幹線
+    '東北新幹線','上越新幹線','北陸新幹線','東海道新幹線',
+    // JR東 幹線系
+    '東海道線','中央線','東北線','御殿場線','常磐線',
+    // 複数都県またぎ
+    '総武線','南武線','横浜線','武蔵野線','京葉線','八高線','高崎線','鹿島線','水戸線',
+    '5号線東西線','8号線有楽町線','10号線新宿線','相模原線',
+    '東横線','田園都市線',
+    '本線',          // 京急本線・京成本線 共通（会社内で最初の路線として機能）
+    '小田原線','多摩線',
+    '池袋線','新宿線','山口線',
+    '伊勢崎線','佐野線','日光線','野田線','東上本線',
+    '成田空港線',
+    '埼玉高速鉄道線','常磐新線','北総線',
+    // 東京都内
+    '青梅線','五日市線','京王線','井の頭線',
+    '拝島線','国分寺線','多摩湖線','多摩川線',
+    '多摩都市モノレール線',
+    '山手線','赤羽線',
+    '3号線銀座線','4号線丸ノ内線','4号線丸ノ内線分岐線','2号線日比谷線',
+    '9号線千代田線','11号線半蔵門線','13号線副都心線','7号線南北線',
+    '1号線浅草線','6号線三田線','12号線大江戸線','荒川線','日暮里・舎人ライナー',
+    '目黒線','大井町線','東急多摩川線','池上線','世田谷線',
+    '空港線','西武有楽町線','豊島線',
+    '亀戸線','大師線',  // 東武大師線（京急大師線も同キーで近似）
+    '押上線','金町線',
+    '東京モノレール羽田線','東京臨海新交通臨海線','臨海副都心線',
+    '競馬場線','西武園線','動物園線','高尾線',
+    // 神奈川
+    '根岸線','横須賀線','鶴見線','相模線','江ノ島線','逗子線','久里浜線',
+    '相鉄本線','相鉄いずみ野線',
+    '1号線',  // 横浜市1号線
+    '江ノ島電鉄線','江の島線','大雄山線','鉄道線',
+    '3号線','4号線',  // 横浜市
+    '東急新横浜線','こどもの国線',
+    '金沢シーサイドライン','みなとみらい21線','相鉄新横浜線','鋼索線','大山鋼索線',
+    // 埼玉
+    '川越線','西武秩父線','越生線','伊奈線','秩父本線','狭山線',
+    // 千葉
+    '内房線','外房線','成田線','久留里線','東金線',
+    '千葉線','千原線','新京成線',
+    '小湊鐵道線','流山線','いすみ線',
+    '東葉高速線','芝山鉄道線',
+    '2号線',  // 千葉都市モノレール2号線
+    '銚子電気鉄道線','ディズニーリゾートライン','ユーカリが丘線','東成田線','松戸線',
+    // 群馬・栃木
+    '信越本線','吾妻線','桐生線','小泉線','上信線',
+    // その他
+    '伊東線','駿豆線','大月線','十国鋼索線','ケーブルカー','高尾鋼索線',
+    '常総線','大洗鹿島線','筑波山鋼索鉄道線','竜ヶ崎線',
+  ];
+  const m = new Map();
+  a.forEach((name, i) => { if (!m.has(name)) m.set(name, i); });
+  return m;
+})();
+function lineColorPair(line){ const fill=lineColorOf(line); return { fill, border: darken(fill) }; }
+// 表示用路線名：先頭の「○号線」を除去（例: "1号線浅草線" → "浅草線"）
+// 「3号線銀座線」→「銀座線」。「1号線」のように後ろが空になる場合はそのまま返す
+function lineDisplayName(line){ const s = line.replace(/^\d+号線/, ''); return s || line; }
+
+/* 路線ごとの訪問駅数（訪問済み駅の色優先順位に使う） */
+let lineVisitedCounts = {};
+function computeLineCounts(){
+  const c = {};
+  for (const name of Object.keys(visited)) {
+    const entries = stationsByNameEntries[name] || [];
+    entries.forEach(e => { c[e.line] = (c[e.line] || 0) + 1; });
+  }
+  lineVisitedCounts = c;
+}
+/* 路線ごとの総駅数（未訪問駅の色優先順位に使う） */
+let lineTotalCounts = {};
+function computeLineTotalCounts(){
+  const c = {};
+  stationsMaster.forEach(e => { c[e.line] = (c[e.line] || 0) + 1; });
+  lineTotalCounts = c;
+}
+/* 駅の円の色：最大3路線のイメージカラーを返す（扇形ミックス用）。
+   訪問済み駅 → ユーザーが多く訪れた路線を優先（自分の記録が反映される）。
+   未訪問駅   → 総駅数の多い路線を優先（主要路線が前面に出る）。 */
+function stationLineColors(name){
+  const entries = stationsByNameEntries[name] || [];
+  let lines = [...new Set(entries.map(e => e.line))];
+  if (!lines.length) return null;
+  // ユーザーの訪問数が多い路線を優先
+  lines.sort((a,b) => (lineVisitedCounts[b]||0) - (lineVisitedCounts[a]||0));
+  return lines.slice(0,3).map(lineColorOf);
+}
+
+/* ---- ツリー描画（事業者 > 路線 > 駅、一覧／記録で共用） ---- */
+const TREE_SEP = '\t';
+function renderTreeHTML(tree, expSet, opts){
+  let h = '';
+  tree.forEach(co => {
+    const coOpen = opts.forceExpand || expSet.has('co:'+co.company);
+    h += `<div class="tree-co-h${coOpen?' open':''}" data-co="${escapeAttr(co.company)}">`
+      + `<span class="tree-caret">▶</span><span class="co-name">${escapeHtml(co.company)}</span>`
+      + `<span class="tree-count">${co.visitedCount}/${co.count}</span></div>`;
+    if(!coOpen) return;
+    co.lines.forEach(ln => {
+      const cp = lineColorPair(ln.name);
+      const key = co.company + TREE_SEP + ln.name;
+      const lnOpen = opts.forceExpand || expSet.has('ln:'+key);
+      h += `<div class="tree-ln-h${lnOpen?' open':''}" data-ln="${escapeAttr(key)}" style="border-left-color:${cp.fill}">`
+        + `<span class="tree-caret">▶</span><span class="ln-dot" style="background:${cp.fill}"></span>`
+        + `<span class="ln-name">${escapeHtml(lineDisplayName(ln.name))}</span><span class="tree-count">${ln.visitedCount}/${ln.masterCount}</span></div>`;
+      if(lnOpen) h += ln.names.map(opts.row).join('');
+    });
+  });
+  return h;
+}
+function toggleSet(s, k){ if(s.has(k)) s.delete(k); else s.add(k); }
+
+document.getElementById('listScroll').addEventListener('click', e => {
+  const coH = e.target.closest('[data-co]');
+  if (coH) { toggleSet(listExp, 'co:' + coH.getAttribute('data-co')); renderList(); return; }
+  const lnH = e.target.closest('[data-ln]');
+  if (lnH) { toggleSet(listExp, 'ln:' + lnH.getAttribute('data-ln')); renderList(); return; }
+  const del = e.target.closest('[data-del]');
+  if (del) { e.stopPropagation(); deleteStation(del.getAttribute('data-del')); return; }
+  const item = e.target.closest('.st-item');
+  if (item) {
+    const name = item.getAttribute('data-name');
+    const st = stationObj(name);
+    if (st.lat) { map.panTo([st.lat, st.lng]); openDetail(name, { showMap: true }); }
+  }
+});
+document.getElementById('searchInput').addEventListener('input', renderList);
+
+/* ---- 任意駅の手動追加（地図に無い駅向け） ---- */
+map.on('click', e => {
+  pendingLatLng = e.latlng;
+  document.getElementById('addName').value = '';
+  document.getElementById('addModal').classList.add('show');
+  setTimeout(() => document.getElementById('addName').focus(), 50);
+});
+function closeAddModal(){ document.getElementById('addModal').classList.remove('show'); pendingLatLng = null; }
+document.getElementById('addCancel').addEventListener('click', closeAddModal);
+document.getElementById('addModal').addEventListener('click', e => { if (e.target.id === 'addModal') closeAddModal(); });
+document.getElementById('addOk').addEventListener('click', confirmAdd);
+document.getElementById('addName').addEventListener('keydown', e => { if (e.key === 'Enter') confirmAdd(); });
+
+function confirmAdd() {
+  const name = document.getElementById('addName').value.trim();
+  if (!name || !pendingLatLng) { closeAddModal(); return; }
+  if (!visited[name]) {
+    const c = stationsByNameCoord[name];
+    visited[name] = c
+      ? { lat: c.lat, lng: c.lng, custom: false, memo: '', photos: [] }
+      : { lat: pendingLatLng.lat, lng: pendingLatLng.lng, custom: true, memo: '', photos: [] };
+  }
+  save();
+  closeAddModal();
+  updateCount();
+  renderMarkers();
+  renderList();
+}
+
+function deleteStation(name) {
+  if (!confirm(`「${name}」を記録から削除しますか？`)) return;
+  purgePhotos(visited[name]);
+  delete visited[name];
+  save();
+  updateCount();
+  renderMarkers();
+  renderList();
+}
+
+/* ---- 駅詳細（メモ・写真） ---- */
+let curDetail = null;
+
+function openDetail(name, opts) {
+  opts = opts || {};
+  const coord = stationsByNameCoord[name] || (visited[name] ? { lat: visited[name].lat, lng: visited[name].lng } : null);
+  if (!coord && !visited[name]) return;
+  curDetail = name;
+
+  const entries = stationsByNameEntries[name] || [];
+  const company = entries.length ? entries[0].company : '手動追加';
+  const isCustom = !masterNames.has(name);
+
+  document.getElementById('dtName').textContent = name;
+  document.getElementById('dtLine').textContent = company + (isCustom ? ' ・手動追加' : '');
+
+  const rec = visited[name];
+  const lines = [...new Set(entries.map(e => e.line))];
+  const savedAddress = rec?.address || '';
+  renderStationInfo(name, { lines, address: savedAddress, loading: !savedAddress && !!coord });
+
+  document.getElementById('dtMemo').value = (rec && rec.memo) || '';
+  renderDetailVisit();
+  renderRating(name);
+  renderPhotos();
+  document.getElementById('dtVisit').style.display = opts.hideVisit ? 'none' : '';
+  document.getElementById('dtShowMap').hidden = !opts.showMap;
+  document.getElementById('detailModal').classList.add('show');
+
+  // 住所が未取得なら Nominatim から取得
+  if (!savedAddress && coord) {
+    fetchAddress(name, coord.lat, coord.lng).then(address => {
+      if (curDetail === name) renderStationInfo(name, { lines, address, loading: false });
+    });
+  }
+}
+
+/* 住所取得（Nominatim / OSM 逆ジオコーディング） */
+const addressCache = {}; // name -> address string
+async function fetchAddress(name, lat, lng) {
+  if (addressCache[name]) return addressCache[name];
+  try {
+    const r = await fetch(`https://nominatim.openstreetmap.org/reverse?format=jsonv2&lat=${lat}&lon=${lng}&accept-language=ja&zoom=18`);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    const d = await r.json();
+    const a = d.address || {};
+    const parts = [
+      a.province || a.state,
+      a.city || a.county,
+      a.city_district || a.ward || a.suburb || a.town || a.village,
+      a.neighbourhood || a.quarter,
+      a.block || a.hamlet
+    ];
+    const address = parts.filter(Boolean).join('') || d.display_name || '';
+    addressCache[name] = address;
+    if (visited[name]) { visited[name].address = address; save(); }
+    return address;
+  } catch (e) { return ''; }
+}
+
+function renderStationInfo(name, data) {
+  if (curDetail !== name) return;
+  const el = document.getElementById('dtInfo');
+  const loading = data?.loading;
+  const lineChips = arr => arr.map(l => {
+    const col = lineColorOf(l);
+    return `<span class="line-chip" style="border-left:3px solid ${col}">${escapeHtml(lineDisplayName(l))}</span>`;
+  }).join('');
+
+  let linesHtml;
+  if (data?.lines?.length) {
+    const head = data.lines.slice(0, 3);
+    const rest = data.lines.slice(3);
+    linesHtml = lineChips(head);
+    if (rest.length) {
+      linesHtml += `<span class="line-rest" hidden>${lineChips(rest)}</span>`;
+      linesHtml += `<button class="line-expand" type="button">他${rest.length}路線を表示</button>`;
+    }
+  } else linesHtml = '<span class="dt-muted">情報なし</span>';
+
+  const addrHtml = loading
+    ? '<span class="dt-muted">読み込み中…</span>'
+    : (data?.address ? escapeHtml(data.address) : '<span class="dt-muted">情報なし</span>');
+
+  const isCustom = !masterNames.has(name);
+  el.innerHTML =
+    `<div class="dt-info-row"><span class="dt-info-k">路線</span><span class="dt-info-v">${linesHtml}</span></div>` +
+    `<div class="dt-info-row"><span class="dt-info-k">住所</span><span class="dt-info-v">${addrHtml}</span></div>` +
+    (!loading ? `<button class="dt-info-edit" type="button">✎ 住所を編集${isCustom ? '・路線を編集' : ''}</button>` : '');
+
+  const btn = el.querySelector('.line-expand');
+  if (btn) btn.addEventListener('click', () => {
+    el.querySelector('.line-rest').hidden = false;
+    btn.remove();
+  });
+  const ed = el.querySelector('.dt-info-edit');
+  if (ed) ed.addEventListener('click', () => editStationInfo(name, data));
+}
+
+function editStationInfo(name, curData) {
+  if (curDetail !== name) return;
+  const isCustom = !masterNames.has(name);
+  const el = document.getElementById('dtInfo');
+  const address = visited[name]?.address || curData?.address || '';
+  el.innerHTML =
+    (isCustom ? `<label class="dt-label">路線（1行に1路線）</label><textarea id="edLines" rows="3" class="dt-edit-area">${escapeHtml((curData?.lines || []).join('\n'))}</textarea>` : '') +
+    `<label class="dt-label">住所</label>` +
+    `<input id="edAddr" class="dt-edit-input" placeholder="例：東京都千代田区丸の内" value="${escapeAttr(address)}">` +
+    `<div class="dt-edit-btns"><button id="edCancel" type="button">キャンセル</button><button id="edSave" type="button" class="primary">保存</button></div>`;
+
+  document.getElementById('edCancel').addEventListener('click', () => renderStationInfo(name, curData));
+  document.getElementById('edSave').addEventListener('click', () => {
+    const newAddress = document.getElementById('edAddr').value.trim();
+    addressCache[name] = newAddress;
+    ensureEntry();
+    visited[name].address = newAddress;
+    const entries = stationsByNameEntries[name] || [];
+    const lines = isCustom
+      ? (document.getElementById('edLines')?.value.split('\n').map(s => s.trim()).filter(Boolean) || [])
+      : [...new Set(entries.map(e => e.line))];
+    save();
+    renderStationInfo(name, { lines, address: newAddress });
+    renderMarkers();
+    renderList();
+  });
+}
+
+function closeDetail() {
+  document.getElementById('detailModal').classList.remove('show');
+  curDetail = null;
+  revokeDetailURLs();
+  updateCount();
+  renderMarkers();
+  renderList();
+  renderMemoList();
+}
+
+function ensureEntry() {
+  if (!curDetail) return false;
+  if (!visited[curDetail]) {
+    const c = stationsByNameCoord[curDetail];
+    if (!c) return false;
+    visited[curDetail] = { lat: c.lat, lng: c.lng, custom: false, memo: '', photos: [] };
+  }
+  if (!visited[curDetail].photos) visited[curDetail].photos = [];
+  return true;
+}
+
+function renderDetailVisit() {
+  const el = document.getElementById('dtVisit');
+  const recorded = !!visited[curDetail];
+  el.innerHTML = recorded
+    ? '<button class="dt-toggle on" id="dtToggle">✓ 訪問済み（タップで取消）</button>'
+    : '<button class="dt-toggle" id="dtToggle">この駅を訪問済みにする</button>';
+  document.getElementById('dtDelete').style.display = recorded ? '' : 'none';
+  document.getElementById('dtToggle').onclick = () => {
+    if (visited[curDetail]) {
+      const r = visited[curDetail];
+      if ((r.memo && r.memo.trim()) || (r.photos && r.photos.length)) {
+        if (!confirm('メモ・写真も削除して未訪問に戻しますか？')) return;
+      }
+      purgePhotos(r);
+      delete visited[curDetail];
+    } else {
+      ensureEntry();
+    }
+    save();
+    renderDetailVisit();
+    renderPhotos();
+  };
+}
+
+let detailURLs = [];
+function revokeDetailURLs() { detailURLs.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} }); detailURLs = []; }
+
+async function renderPhotos() {
+  const wrap = document.getElementById('dtPhotos');
+  const name = curDetail;
+  revokeDetailURLs();
+  const rec = visited[name];
+  const photos = (rec && rec.photos) || [];
+  if (!photos.length) { wrap.innerHTML = '<div class="dt-nophoto">写真はまだありません</div>'; return; }
+  const parts = [];
+  for (let i = 0; i < photos.length; i++) {
+    const got = await photoToURL(photos[i]);
+    if (curDetail !== name) { if (got && got.revoke) { try { URL.revokeObjectURL(got.url); } catch (e) {} } return; } // 別の駅を開いた
+    if (!got) continue;
+    if (got.revoke) detailURLs.push(got.url);
+    parts.push(`<div class="dt-thumb"><img src="${got.url}" data-view="${i}"><button class="dt-thumb-del" data-pdel="${i}">✕</button></div>`);
+  }
+  if (curDetail !== name) return;
+  wrap.innerHTML = parts.join('') || '<div class="dt-nophoto">写真を読み込めませんでした</div>';
+}
+
+/* ★5段階評価 */
+function renderRating(name) {
+  const el = document.getElementById('dtRating');
+  const rec = visited[name];
+  const val = (rec && rec.rating) || 0;
+  let html = '';
+  for (let i = 1; i <= 5; i++) html += `<span class="dt-star ${i <= val ? 'on' : ''}" data-star="${i}">★</span>`;
+  html += '<button type="button" class="dt-rating-clear" data-star="0">クリア</button>';
+  el.innerHTML = html;
+}
+document.getElementById('dtRating').addEventListener('click', e => {
+  const s = e.target.closest('[data-star]');
+  if (!s || !curDetail) return;
+  const v = +s.getAttribute('data-star');
+  if (v === 0 && !visited[curDetail]) return; // 未記録で「クリア」なら何もしない
+  ensureEntry();
+  visited[curDetail].rating = v;
+  save();
+  renderRating(curDetail);
+  renderDetailVisit();
+  renderList();
+  renderMemoList();
+});
+
+/* メモは入力即保存 */
+document.getElementById('dtMemo').addEventListener('input', () => {
+  if (!curDetail) return;
+  ensureEntry();
+  visited[curDetail].memo = document.getElementById('dtMemo').value;
+  save();
+  renderDetailVisit();
+});
+
+/* 写真追加（スマホではカメラ／ライブラリから選択可） */
+document.getElementById('dtAddPhoto').addEventListener('click', () => document.getElementById('dtPhotoInput').click());
+document.getElementById('dtPhotoInput').addEventListener('change', async e => {
+  const files = Array.from(e.target.files || []);
+  e.target.value = '';
+  if (!files.length || !curDetail) return;
+  ensureEntry();
+  for (const f of files) {
+    try {
+      const blob = await compressImage(f, 1280, 0.7);
+      const ref = await storePhoto(blob);
+      visited[curDetail].photos.push(ref);
+      if (typeof ref === 'string') {
+        // IDB非対応：dataURLをlocalStorageに保存するため容量超過の可能性あり
+        if (!save()) { visited[curDetail].photos.pop(); break; }
+      } else {
+        save(); // 写真はIDB・メタデータのみlocalStorage（小さい）
+      }
+    } catch (err) { alert('写真の処理に失敗しました'); }
+  }
+  await renderPhotos();
+  renderDetailVisit();
+});
+
+/* サムネのタップ（拡大／削除） */
+document.getElementById('dtPhotos').addEventListener('click', async e => {
+  const del = e.target.closest('[data-pdel]');
+  if (del) {
+    const i = +del.getAttribute('data-pdel');
+    const rec = visited[curDetail];
+    if (rec && rec.photos) {
+      const ref = rec.photos.splice(i, 1)[0];
+      if (typeof ref === 'number') idbDelete(ref).catch(() => {});
+      save();
+      await renderPhotos();
+      renderDetailVisit();
+    }
+    return;
+  }
+  const view = e.target.closest('[data-view]');
+  if (view) {
+    document.getElementById('imgViewerImg').src = view.getAttribute('src');
+    document.getElementById('imgViewer').classList.add('show');
+  }
+});
+document.getElementById('imgViewer').addEventListener('click', () => document.getElementById('imgViewer').classList.remove('show'));
+
+document.getElementById('dtClose').addEventListener('click', closeDetail);
+document.getElementById('dtDone').addEventListener('click', closeDetail);
+document.getElementById('detailModal').addEventListener('click', e => { if (e.target.id === 'detailModal') closeDetail(); });
+document.getElementById('dtDelete').addEventListener('click', () => {
+  if (!curDetail) return;
+  if (!confirm(`「${curDetail}」を記録から削除しますか？`)) return;
+  purgePhotos(visited[curDetail]);
+  delete visited[curDetail];
+  save();
+  closeDetail();
+});
+document.getElementById('dtShowMap').addEventListener('click', () => {
+  const name = curDetail;
+  const rec = visited[name];
+  closeDetail();
+  switchTab('map');
+  if (rec && typeof rec.lat === 'number') {
+    map.setView([rec.lat, rec.lng], 15);
+    const mk = markers[name];
+    if (mk) mk.openTooltip();
+  }
+});
+
+/* 画像をリサイズして Blob 化（長辺1280px・JPEG圧縮） */
+function compressImage(file, maxDim, quality) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    const url = URL.createObjectURL(file);
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let w = img.width, h = img.height;
+      if (w > h && w > maxDim) { h = Math.round(h * maxDim / w); w = maxDim; }
+      else if (h >= w && h > maxDim) { w = Math.round(w * maxDim / h); h = maxDim; }
+      const canvas = document.createElement('canvas');
+      canvas.width = w; canvas.height = h;
+      canvas.getContext('2d').drawImage(img, 0, 0, w, h);
+      canvas.toBlob(b => b ? resolve(b) : reject(new Error('画像変換失敗')), 'image/jpeg', quality);
+    };
+    img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('画像読込失敗')); };
+    img.src = url;
+  });
+}
+
+/* ---- 駅データ再読み込み ---- */
+document.getElementById('refreshBtn').addEventListener('click', () => {
+  stationsMaster = [];
+  stationsByNameCoord = {};
+  stationsByNameEntries = {};
+  masterNames = new Set();
+  masterLineTotals = {};
+  stationCodeMap = {};
+  loadStations();
+});
+
+/* ---- 現在地 ---- */
+document.getElementById('locBtn').addEventListener('click', () => {
+  if (!navigator.geolocation) { alert('現在地を取得できません'); return; }
+  navigator.geolocation.getCurrentPosition(
+    pos => map.setView([pos.coords.latitude, pos.coords.longitude], 15),
+    () => alert('現在地の取得に失敗しました')
+  );
+});
+
+/* ---- エクスポート / インポート ---- */
+document.getElementById('exportBtn').addEventListener('click', async () => {
+  // 写真(IDB)はbase64へ変換し、1ファイルで持ち運べる形にする
+  const out = {};
+  for (const [name, info] of Object.entries(visited)) {
+    const copy = Object.assign({}, info);
+    const photos = Array.isArray(info.photos) ? info.photos : [];
+    const conv = [];
+    for (const p of photos) {
+      if (typeof p === 'number') { try { const b = await idbGet(p); if (b) conv.push(await blobToDataURL(b)); } catch (e) {} }
+      else if (typeof p === 'string') conv.push(p);
+    }
+    copy.photos = conv;
+    out[name] = copy;
+  }
+  const data = JSON.stringify({ visited: out, exportedAt: new Date().toISOString() }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = `station-record-${new Date().toISOString().slice(0,10)}.json`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+});
+document.getElementById('importBtn').addEventListener('click', () => document.getElementById('importFile').click());
+document.getElementById('importFile').addEventListener('change', e => {
+  const file = e.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = async ev => {
+    try {
+      const d = JSON.parse(ev.target.result);
+      if (!confirm('現在の記録に取り込みます。よろしいですか？')) return;
+      const incoming = d.visited || {};
+      for (const [name, info] of Object.entries(incoming)) {
+        if (info === true) continue; // 座標なしの旧形式はスキップ
+        const copy = Object.assign({}, info);
+        const photos = Array.isArray(info.photos) ? info.photos : [];
+        const refs = [];
+        for (const p of photos) {
+          if (typeof p === 'string' && p.startsWith('data:')) {
+            try { refs.push(idbSupported ? await idbAdd(dataURLToBlob(p)) : p); } catch (err) {}
+          }
+        }
+        copy.photos = refs;
+        purgePhotos(visited[name]); // 同名の既存写真を掃除
+        visited[name] = copy;
+      }
+      // 旧形式 customStations にも対応
+      (d.customStations || []).forEach(s => {
+        visited[s.name] = { lat: s.lat, lng: s.lng, line: s.line || '手動追加', custom: true, memo: '', photos: [] };
+      });
+      save();
+      updateCount(); renderMarkers(); renderList(); renderMemoList();
+      alert('取り込みました');
+    } catch(err) { alert('ファイルの読み込みに失敗しました'); }
+  };
+  reader.readAsText(file);
+  e.target.value = '';
+});
+
+/* ---- 記録一覧（事業者 > 路線 > 駅のツリー） ---- */
+let recListURLs = [];
+let memoExp = new Set();
+function memoRowHTML(name) {
+  const r = visited[name];
+  const rating = (r && r.rating) || 0;
+  const stars = rating
+    ? `<span class="rec-stars">${'★'.repeat(rating)}<span class="off">${'★'.repeat(5 - rating)}</span></span>`
+    : '<span class="rec-stars off-all">評価なし</span>';
+  return `<div class="rec-row indent" data-name="${escapeAttr(name)}">
+    <div class="rec-thumb">🚉</div>
+    <div class="rec-head-main"><div class="rec-name">${escapeHtml(name)}</div>${stars}</div>
+    <div class="rec-go">›</div>
+  </div>`;
+}
+async function renderMemoList() {
+  computeLineCounts();
+  const scroll = document.getElementById('memoScroll');
+  recListURLs.forEach(u => { try { URL.revokeObjectURL(u); } catch (e) {} });
+  recListURLs = [];
+  if (!Object.keys(visited).length) {
+    scroll.innerHTML = '<div class="empty">まだ記録がありません。<br>駅をタップして訪問済みにすると、ここに表示されます。</div>';
+    return;
+  }
+  const tree = buildTree('visited');
+  scroll.innerHTML = renderTreeHTML(tree, memoExp, { forceExpand: false, row: memoRowHTML });
+  // サムネ（先頭写真）を非同期ロード
+  for (const row of scroll.querySelectorAll('.rec-row')) {
+    const rec = visited[row.getAttribute('data-name')];
+    if (!rec?.photos?.length) continue;
+    const got = await photoToURL(rec.photos[0]);
+    if (!got) continue;
+    if (got.revoke) recListURLs.push(got.url);
+    const tEl = row.querySelector('.rec-thumb');
+    if (tEl) tEl.innerHTML = `<img src="${got.url}">`;
+  }
+}
+document.getElementById('memoScroll').addEventListener('click', e => {
+  const coH = e.target.closest('[data-co]');
+  if (coH) { toggleSet(memoExp, 'co:' + coH.getAttribute('data-co')); renderMemoList(); return; }
+  const lnH = e.target.closest('[data-ln]');
+  if (lnH) { toggleSet(memoExp, 'ln:' + lnH.getAttribute('data-ln')); renderMemoList(); return; }
+  const row = e.target.closest('.rec-row');
+  if (!row) return;
+  openDetail(row.getAttribute('data-name'), { showMap: true, hideVisit: true });
+});
+
+/* ---- タブ切替 ---- */
+function setPaneDisplay(showMap, showList, showMemo) {
+  document.getElementById('mapPane').style.display = showMap ? 'block' : 'none';
+  document.getElementById('listPane').style.display = showList ? 'flex' : 'none';
+  document.getElementById('memoPane').style.display = showMemo ? 'flex' : 'none';
+}
+function switchTab(tab) {
+  currentTab = tab;
+  document.querySelectorAll('.tabs button').forEach(b => b.classList.toggle('active', b.dataset.tab === tab));
+  const desktop = window.matchMedia('(min-width: 681px)').matches;
+  if (desktop) {
+    // 地図は常時表示。右パネルは 一覧 / メモ を切替
+    const side = (tab === 'memo') ? 'memo' : 'list';
+    setPaneDisplay(true, side === 'list', side === 'memo');
+  } else {
+    setPaneDisplay(tab === 'map', tab === 'list', tab === 'memo');
+  }
+  if (tab === 'memo') renderMemoList();
+  setTimeout(() => map.invalidateSize(), 50);
+}
+document.querySelectorAll('.tabs button').forEach(b => b.addEventListener('click', () => switchTab(b.dataset.tab)));
+
+function applyLayout() {
+  let active = document.querySelector('.tabs button.active')?.dataset.tab || 'map';
+  const desktop = window.matchMedia('(min-width: 681px)').matches;
+  if (desktop && active === 'map') active = 'list'; // PCでは地図は常時表示 → 右は一覧を既定に
+  switchTab(active);
+}
+window.addEventListener('resize', applyLayout);
+
+/* ---- 初期化 ---- */
+load();
+updateCount();
+document.addEventListener('DOMContentLoaded', applyLayout);
+applyLayout();
+loadStations();
+
+if (!hasLS) {
+  document.getElementById('hintBar').textContent = '注意：この環境ではデータ保存ができません';
+}
+</script>
+<footer style="font-size:11px;color:#888;text-align:center;padding:4px 8px;background:#f5f5f5;border-top:1px solid #ddd;">
+  駅データ: <a href="https://nlftp.mlit.go.jp/ksj/gml/datalist/KsjTmplt-N02-v3_1.html" target="_blank" rel="noopener">国土数値情報 鉄道データ</a>（国土交通省、CC BY 4.0）／
+  地図・住所: <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap contributors</a>（<a href="https://nominatim.org/" target="_blank" rel="noopener">Nominatim</a>）
+</footer>
+</body>
+</html>
